@@ -1,10 +1,9 @@
 # Add this import at the top
-import json 
+import json
 from firebase_functions import https_fn, options
 from firebase_admin import initialize_app
 import numpy as np
 import tensorflow.lite as tflite
-from flask import Flask, request, jsonify
 
 initialize_app()
 
@@ -25,12 +24,14 @@ def predict(req: https_fn.Request) -> https_fn.Response:
     try:
         request_data = req.get_json(silent=True)
         if not request_data:
+            # FIX 1: Use json.dumps
             return https_fn.Response('{"error": "Invalid JSON."}', status=400, mimetype="application/json")
 
         model_name = request_data.get('model_name')
         input_data = request_data.get('inputs')
 
         if not model_name or model_name not in model_paths:
+            # FIX 2: Use json.dumps
             return https_fn.Response('{"error": "Invalid model name."}', status=400, mimetype="application/json")
 
         # Lazy-loading logic: only load the model if it's not in memory
@@ -63,8 +64,7 @@ def predict(req: https_fn.Request) -> https_fn.Response:
             "prediction": prediction
         }
         
-        # --- THIS IS THE CORRECTED LINE ---
-        # Convert the dictionary to a JSON string and set the correct mimetype
+        # FIX 3: Use json.dumps
         return https_fn.Response(json.dumps(response_body), status=200, mimetype="application/json")
 
     except Exception as e:
@@ -72,14 +72,5 @@ def predict(req: https_fn.Request) -> https_fn.Response:
         error_payload = {
             "error": f"An internal error occurred: {str(e)}"
         }
+        # FIX 4: Use json.dumps
         return https_fn.Response(json.dumps(error_payload), status=500, mimetype="application/json")
-        # -----------------------------------------------------------
-# THIS IS THE PART YOU NEED TO FIND AND FIX AT THE BOTTOM
-# -----------------------------------------------------------
-
-# Move the app creation INSIDE the if block as well.
-if __name__ == "__main__":
-    app = Flask(__name__)
-    # If you have any @app.route decorators for local testing,
-    # they would need to be defined in here too.
-    app.run(host='0.0.0.0', port=8081)
