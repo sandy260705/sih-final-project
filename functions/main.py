@@ -77,12 +77,9 @@ def predict(req: https_fn.Request) -> https_fn.Response:
 # THIS IS THE PART YOU NEED TO FIND AND FIX AT THE BOTTOM
 # -----------------------------------------------------------
 
-# This part is for your LOCAL testing. It should be at the end.
-app = Flask(__name__)
-
-# You might have some @app.route(...) decorators here for local testing.
-# Leave them as they are.
-
-# This is the line to wrap.
+# Move the app creation INSIDE the if block as well.
 if __name__ == "__main__":
+    app = Flask(__name__)
+    # If you have any @app.route decorators for local testing,
+    # they would need to be defined in here too.
     app.run(host='0.0.0.0', port=8081)
