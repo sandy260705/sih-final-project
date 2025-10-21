@@ -15,7 +15,17 @@ model_paths = {
     "time_series": "model_nn_time_series.tflite"
 }
 
-@https_fn.on_request(memory=options.MemoryOption.GB_1)
+@https_fn.on_request(
+    memory=options.MemoryOption.GB_1,
+
+    # --- THIS IS THE FIX FOR THE CORS ERROR ---
+    cors=options.CorsOptions(
+        cors_origins=["*"],  # Allows all domains (like localhost)
+        cors_methods=["post"] # Allows POST requests
+    )
+    # --- END OF FIX ---
+
+)
 def predict(req: https_fn.Request) -> https_fn.Response:
     """
     An HTTPS endpoint that runs predictions. Models are loaded into memory
