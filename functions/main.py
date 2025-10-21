@@ -84,3 +84,11 @@ def predict(req: https_fn.Request) -> https_fn.Response:
         }
         # FIX 4: Use json.dumps
         return https_fn.Response(json.dumps(error_payload), status=500, mimetype="application/json")
+
+# --- THIS IS THE FIX FOR THE DEPLOYMENT TIMEOUT ---
+# This code will now ONLY run if you execute `python main.py` directly
+# and will be ignored by the Firebase deployment.
+if __name__ == "__main__":
+    from flask import Flask
+    app = Flask(__name__)
+    app.run(host='0.0.0.0', port=8081)
