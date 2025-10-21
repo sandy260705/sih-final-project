@@ -59,6 +59,10 @@ def predict(req: https_fn.Request) -> https_fn.Response:
         output_details = interpreter.get_output_details()
 
         input_tensor = np.array(input_data, dtype=np.float32)
+        
+        print(f"--- DEBUGGING ---")
+        print(f"Model expected shape: {input_details[0]['shape']}")
+        print(f"Input tensor shape BEFORE expand: {input_tensor.shape}")
 
         if len(input_tensor.shape) == len(input_details[0]['shape']) - 1:
             input_tensor = np.expand_dims(input_tensor, axis=0)
