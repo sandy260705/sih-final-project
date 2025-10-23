@@ -85,9 +85,27 @@ def predict(req: https_fn.Request) -> https_fn.Response:
 
         # --- Shape Handling & Debugging ---
         model_expected_shape = input_details[0]['shape']
-        print(f"--- DEBUGGING ---")
         print(f"Model expected shape: {model_expected_shape}")
-        print(f"Input tensor shape BEFORE reshape attempt: {input_tensor.shape}")
+        print(f"Input tensor shape BEFORE reshape: {input_tensor.shape}")
+
+        # Determine required total length (excluding batch dim)
+        expected_feature_count = int(np.prod(model_expected_shape[1:]))
+        current_feature_count = input_tensor.size
+
+        if current_feature_count < expected_feature_count:
+            # Pad with zeros if fewer features than expected
+            pad_size = expected_feature_count - current_feature_count
+            print(f"Padding input with {pad_size} zeros")
+            input_tensor = np.pad(input_tensor, (0, pad_size), 'constant')
+        elif current_feature_count > expected_feature_count:
+            # Trim if too long
+            print(f"Trimming input from {current_feature_count} to {expected_feature_count}")
+            input_tensor = input_tensor[:expected_feature_count]
+
+        # Finally, reshape to model input shape (keeping batch dimension)
+        input_tensor = input_tensor.reshape(model_expected_shape)
+        print(f"Final input tensor shape: {input_tensor.shape}")
+     
 
         # Try to reshape the input tensor to match the model's expected shape
         try:
