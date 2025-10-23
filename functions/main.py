@@ -48,10 +48,10 @@ def predict(req: https_fn.Request) -> https_fn.Response:
         if not model_name or model_name not in model_paths:
             # Return error if model name is invalid
             return https_fn.Response('{"error": "Invalid model name."}', status=400, mimetype="application/json")
-        
+
         # Validate input data presence
         if input_data is None:
-             return https_fn.Response('{"error": "Missing input data."}', status=400, mimetype="application/json")
+             return https_fn.Response('{"error": "Missing input data \'inputs\'."}', status=400, mimetype="application/json")
 
 
         # --- Model Loading (Lazy Loading) ---
@@ -75,12 +75,12 @@ def predict(req: https_fn.Request) -> https_fn.Response:
         output_details = interpreter.get_output_details()
 
         # Convert the input data into a NumPy array with the correct data type
-        # This handles lists, nested lists etc.
         try:
              input_tensor = np.array(input_data, dtype=np.float32)
         except Exception as conversion_error:
              print(f"Error converting input data to NumPy array: {conversion_error}")
-             return https_fn.Response(json.dumps({"error": f"Invalid input data format: {conversion_error}"}), status=400, mimetype="application/json")
+             error_payload = {"error": f"Invalid input data format: {conversion_error}"}
+             return https_fn.Response(json.dumps(error_payload), status=400, mimetype="application/json")
 
 
         # --- Shape Handling & Debugging ---
@@ -90,32 +90,46 @@ def predict(req: https_fn.Request) -> https_fn.Response:
         print(f"Input tensor shape BEFORE reshape attempt: {input_tensor.shape}")
 
         # Try to reshape the input tensor to match the model's expected shape
-        # This handles cases like adding batch dimension or matching multi-dimensional shapes
         try:
             # Check if shapes already match (ignoring potential batch dim placeholder like -1 or None)
-            # We compare ranks and non-batch dimensions
             expected_rank = len(model_expected_shape)
             actual_rank = len(input_tensor.shape)
-            
+
             # Simple case: add batch dimension if needed (e.g., input is (15,) model expects (1, 15))
             if actual_rank == expected_rank - 1 and model_expected_shape[0] == 1:
                  input_tensor = np.expand_dims(input_tensor, axis=0)
                  print(f"DEBUG: Input tensor shape AFTER adding batch dim: {input_tensor.shape}")
             # More general reshape if shapes don't match after potential batch dim add
-            elif tuple(input_tensor.shape) != tuple(model_expected_shape):
-                 # Attempt a direct reshape, this might fail if dimensions don't multiply correctly
-                 input_tensor = input_tensor.reshape(model_expected_shape)
+            # Note: We need to handle flexible batch dimensions (like None or -1) in the expected shape
+            expected_shape_tuple = tuple(model_expected_shape)
+            current_shape_tuple = tuple(input_tensor.shape)
+
+            # If the first dimension of expected shape is flexible (-1 or None), compare the rest
+            if expected_shape_tuple[0] in (None, -1) and expected_rank > 1:
+                if current_shape_tuple[1:] != expected_shape_tuple[1:]:
+                     # Try reshaping, assuming batch size 1 if needed
+                     target_shape = [1 if d is None or d == -1 else d for d in expected_shape_tuple]
+                     input_tensor = input_tensor.reshape(target_shape)
+                     print(f"DEBUG: Input tensor shape AFTER flexible batch reshape: {input_tensor.shape}")
+            # If expected shape is fixed and doesn't match current shape
+            elif current_shape_tuple != expected_shape_tuple:
+                 input_tensor = input_tensor.reshape(expected_shape_tuple)
                  print(f"DEBUG: Input tensor shape AFTER direct reshape: {input_tensor.shape}")
+
 
         except ValueError as reshape_error:
              print(f"Error reshaping input tensor: {reshape_error}. Input shape {input_tensor.shape} cannot be reshaped to {model_expected_shape}.")
-             return https_fn.Response(json.dumps({"error": f"Input data shape mismatch. Expected compatible with {model_expected_shape}, but got {input_tensor.shape}. Reshape error: {reshape_error}"}), status=400, mimetype="application/json")
+             error_payload = {"error": f"Input data shape mismatch. Expected compatible with {model_expected_shape}, but got {input_tensor.shape}. Reshape error: {reshape_error}"}
+             return https_fn.Response(json.dumps(error_payload), status=400, mimetype="application/json")
 
         # Final shape check after potential reshaping
-        if tuple(input_tensor.shape) != tuple(model_expected_shape):
+        # Allow for flexible batch dimension in model_expected_shape (None or -1)
+        final_expected_shape = tuple(s if s is not None and s != -1 else input_tensor.shape[i] for i, s in enumerate(model_expected_shape))
+        if tuple(input_tensor.shape) != final_expected_shape:
             final_error_msg = f"Input tensor final shape {input_tensor.shape} does not match model expected shape {model_expected_shape} after attempts to reshape."
             print(final_error_msg)
-            return https_fn.Response(json.dumps({"error": final_error_msg}), status=400, mimetype="application/json")
+            error_payload = {"error": final_error_msg}
+            return https_fn.Response(json.dumps(error_payload), status=400, mimetype="application/json")
 
 
         # --- Run Inference ---
@@ -127,8 +141,9 @@ def predict(req: https_fn.Request) -> https_fn.Response:
         # Get the prediction result from the output tensor
         output_data = interpreter.get_tensor(output_details[0]['index'])
         # Convert the output (often a NumPy array) to a standard Python list
-        # We take the first element [0] assuming a batch size of 1 was used/expected
-        prediction = output_data[0].tolist() if output_data.shape[0] == 1 else output_data.tolist()
+        # Handle potential batch dimension in output
+        prediction = output_data.tolist() # Convert the whole output array
+
 
         # --- Prepare Response ---
         # Create the response body as a Python dictionary
@@ -144,18 +159,22 @@ def predict(req: https_fn.Request) -> https_fn.Response:
     except Exception as e:
         # --- Error Handling ---
         # Log the detailed error to Firebase console
-        print(f"An internal error occurred during prediction: {e}")
+        print(f"An internal error occurred during prediction: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc() # Print full traceback for debugging
+
         # Create a JSON error response
         error_payload = {
-            "error": f"An internal server error occurred: {str(e)}"
+            "error": f"An internal server error occurred: {type(e).__name__}"
         }
         # Convert error payload to JSON and return with status 500 (Internal Server Error)
         return https_fn.Response(json.dumps(error_payload), status=500, mimetype="application/json")
 
 
 # --- DEPLOYMENT TIMEOUT FIX ---
-# This block is intentionally left minimal for deployment.
-# Local testing code (like a Flask server) should NOT be placed here.
+# This block ensures that any local testing code (like a Flask server)
+# only runs when you execute `python main.py` directly.
+# It is ignored during Firebase deployment, preventing timeouts.
 if __name__ == "__main__":
     print("main.py executed directly (likely for local testing, not deployment).")
     # To run local tests, you would typically use the Firebase Emulator Suite
